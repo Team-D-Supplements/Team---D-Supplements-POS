@@ -243,15 +243,39 @@ export const customerByPhone = async (phone: string) =>
   (await all(getDb(), "SELECT name FROM customers WHERE phone = ? LIMIT 1", [phone]))[0] ?? null;
 export const saveCustomer = (id: string | null, c: { name: string; phone: string | null }) =>
   guard(async () => {
+    const name = (c.name ?? "").trim();
+    if (!name) throw new Error("Customer name is required");
+    const rawPhone = (c.phone ?? "").trim();
+    const phone = rawPhone.length ? rawPhone : null;
+    if (phone) {
+      if (!/^\d{10}$/.test(phone)) {
+        throw new Error("Customer phone number must be exactly 10 digits");
+      }
+      const existing = (
+        await all(getDb(), "SELECT id FROM customers WHERE phone = ? LIMIT 1", [phone])
+      )[0];
+      if (existing) {
+        if (!id || existing["id"] === id) {
+          // If saving without id or updating same customer, update name and reuse customer
+          await getDb().execute({
+            sql: "UPDATE customers SET name=?, phone=? WHERE id=?",
+            args: [name, phone, existing["id"]],
+          });
+          return;
+        } else {
+          throw new Error("Another customer with this phone number already exists");
+        }
+      }
+    }
     if (id) {
       await getDb().execute({
         sql: "UPDATE customers SET name=?, phone=? WHERE id=?",
-        args: [c.name, c.phone, id],
+        args: [name, phone, id],
       });
     } else {
       await getDb().execute({
         sql: "INSERT INTO customers (id, name, phone) VALUES (?,?,?)",
-        args: [newId(), c.name, c.phone],
+        args: [newId(), name, phone],
       });
     }
   });
@@ -574,12 +598,18 @@ export function createSale(input: SaleInput, userId: string) {
       const name = nz(input.customer_name);
       let custId: string | null = null;
       if (phone) {
+        if (!/^\d{10}$/.test(phone)) {
+          throw new Error("Customer phone number must be exactly 10 digits");
+        }
         const c = (await raw(tx, "SELECT id FROM customers WHERE phone = ?", [phone]))[0];
         if (!c) {
+          if (!name) {
+            throw new Error("Customer name is required when phone number is entered");
+          }
           custId = newId();
           await tx.execute({
             sql: "INSERT INTO customers (id, name, phone) VALUES (?,?,?)",
-            args: [custId, name ?? "Walk-in", phone],
+            args: [custId, name, phone],
           });
         } else {
           custId = String(c["id"]);

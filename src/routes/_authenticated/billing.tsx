@@ -20,6 +20,11 @@ import { Receipt, type ReceiptInvoice } from "@/components/receipt";
 import { computeTotals, type CartLine } from "@/lib/billing";
 import { buildShortBillText, whatsappLink } from "@/lib/share";
 import { money } from "@/lib/format";
+import {
+  getCustomerNameValidationError,
+  getPhoneValidationError,
+  isValidIndianPhone,
+} from "@/lib/validation";
 import { toast } from "sonner";
 import type { Product as ProductRow } from "@/lib/types";
 import {
@@ -81,6 +86,10 @@ function Billing() {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<ReceiptInvoice | null>(null);
 
+  const phoneError = getPhoneValidationError(customerPhone, false);
+  const nameError = getCustomerNameValidationError(customerName, customerPhone);
+  const hasPhone = customerPhone.trim().length > 0;
+
   useEffect(() => {
     if (settings) setGstOn(settings.gst_enabled_by_default);
   }, [settings]);
@@ -102,7 +111,7 @@ function Billing() {
     const phone = customerPhone.trim();
     let active = true;
 
-    if (!phone) {
+    if (!phone || !isValidIndianPhone(phone)) {
       if (autoFilledNameRef.current) {
         setCustomerName((current) => (current === autoFilledNameRef.current ? "" : current));
       }
@@ -216,6 +225,16 @@ function Billing() {
     if (!cart.length) return;
     if (!online) {
       toast.error("You are offline — cannot complete the sale safely.");
+      return;
+    }
+    const currentPhoneError = getPhoneValidationError(customerPhone, false);
+    if (currentPhoneError) {
+      toast.error(currentPhoneError);
+      return;
+    }
+    const currentNameError = getCustomerNameValidationError(customerName, customerPhone);
+    if (currentNameError) {
+      toast.error(currentNameError);
       return;
     }
     setSaving(true);
@@ -409,16 +428,20 @@ function Billing() {
             <CardContent className="space-y-3 p-4">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="cname">Customer name</Label>
+                  <Label htmlFor="cname">
+                    Customer name {hasPhone && <span className="text-destructive">*</span>}
+                  </Label>
                   <Input
                     id="cname"
                     value={customerName}
+                    aria-invalid={!!nameError}
                     onChange={(e) => {
                       setCustomerName(e.target.value);
                       autoFilledNameRef.current = null;
                       setMatchedCustomer(null);
                     }}
                   />
+                  {nameError && <p className="text-xs text-destructive">{nameError}</p>}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="cphone">Phone</Label>
@@ -426,8 +449,10 @@ function Billing() {
                     id="cphone"
                     inputMode="tel"
                     value={customerPhone}
+                    aria-invalid={!!phoneError}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                   />
+                  {phoneError && <p className="text-xs text-destructive">{phoneError}</p>}
                 </div>
               </div>
               {matchedCustomer && (
@@ -535,7 +560,7 @@ function Billing() {
 
               <Button
                 className="h-12 w-full text-base"
-                disabled={!cart.length || saving || !online}
+                disabled={!cart.length || saving || !online || !!phoneError || !!nameError}
                 onClick={completeSale}
               >
                 {saving && <Loader2 className="mr-2 size-4 animate-spin" />}

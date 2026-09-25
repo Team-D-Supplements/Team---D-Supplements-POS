@@ -12,6 +12,21 @@ import * as pos from "./pos.server";
 const id = z.string().min(1).max(64);
 const text = (max = 500) => z.string().max(max);
 const optText = (max = 500) => z.string().max(max).nullable();
+const optPhone = z
+  .string()
+  .max(50)
+  .nullable()
+  .optional()
+  .refine((val) => !val || !val.trim() || /^\d{10}$/.test(val.trim()), {
+    message: "Phone number must be exactly 10 digits",
+  });
+const phoneSchema = z
+  .string()
+  .max(50)
+  .optional()
+  .refine((val) => !val || !val.trim() || /^\d{10}$/.test(val.trim()), {
+    message: "Phone number must be exactly 10 digits",
+  });
 const money = z.number().finite().min(0).max(1e10);
 
 // ---------- settings
@@ -93,10 +108,10 @@ export const tSaveCustomer = createServerFn({ method: "POST" })
   .middleware([adminMiddleware])
   .inputValidator((d: unknown) =>
     z
-      .object({ id: id.nullable(), name: z.string().trim().min(1).max(200), phone: optText(50) })
+      .object({ id: id.nullable(), name: z.string().trim().min(1).max(200), phone: optPhone })
       .parse(d),
   )
-  .handler(({ data }) => pos.saveCustomer(data.id, { name: data.name, phone: data.phone }));
+  .handler(({ data }) => pos.saveCustomer(data.id, { name: data.name, phone: data.phone ?? null }));
 export const tListSuppliers = createServerFn({ method: "GET" })
   .middleware([adminMiddleware])
   .handler(() => pos.listSuppliers());
@@ -152,7 +167,7 @@ export const tCreateSale = createServerFn({ method: "POST" })
       .object({
         items: z.array(z.object({ product_id: id, quantity: z.number() })).max(500),
         customer_name: text(200).optional(),
-        customer_phone: text(50).optional(),
+        customer_phone: phoneSchema,
         discount_type: z.enum(["none", "percent", "amount"], { message: "Invalid discount type" }),
         discount_value: z.number().finite(),
         gst_applied: z.boolean(),

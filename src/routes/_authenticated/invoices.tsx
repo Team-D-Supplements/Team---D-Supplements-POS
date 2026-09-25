@@ -1,7 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createSalesReturn, customerByPhone, getInvoiceDetail, listInvoices } from "@/lib/data";
+import {
+  createSalesReturn,
+  customerByPhone,
+  getInvoiceDetail,
+  listInvoices,
+  saveCustomer,
+} from "@/lib/data";
+import { getPhoneValidationError, isValidIndianPhone } from "@/lib/validation";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -77,6 +84,7 @@ function Invoices() {
   const [shareName, setShareName] = useState("");
   const [shareAutoFilledName, setShareAutoFilledName] = useState<string | null>(null);
   const shareAutoFilledRef = useRef<string | null>(null);
+  const [savingCustomer, setSavingCustomer] = useState(false);
 
   const { data: invoices } = useQuery({
     queryKey: ["invoices"],
@@ -112,6 +120,16 @@ function Invoices() {
       } as unknown as ReceiptInvoice)
     : null;
 
+  const isMissingPhoneSnapshot = !!receipt && !receipt.customer_phone_snapshot;
+  const sharePhoneError =
+    isMissingPhoneSnapshot && sharePhone ? getPhoneValidationError(sharePhone, true) : null;
+  const shareNameError =
+    isMissingPhoneSnapshot && sharePhone
+      ? !shareName.trim()
+        ? "Customer name is required"
+        : null
+      : null;
+
   const selectedLines = useMemo(() => {
     if (!detail) return [];
     return detail.invoice_items.flatMap((item) => {
@@ -126,7 +144,7 @@ function Invoices() {
   useEffect(() => {
     const phone = sharePhone.trim();
     let active = true;
-    if (!phone) {
+    if (!phone || !isValidIndianPhone(phone)) {
       if (shareAutoFilledRef.current) {
         setShareName((n) => (n === shareAutoFilledRef.current ? "" : n));
       }
@@ -273,6 +291,7 @@ function Invoices() {
             setShareName("");
             shareAutoFilledRef.current = null;
             setShareAutoFilledName(null);
+            setSavingCustomer(false);
           }
         }}
       >
@@ -343,38 +362,47 @@ function Invoices() {
                 <div className="no-print space-y-2 rounded-md border p-3">
                   <p className="text-sm font-medium">Share via WhatsApp</p>
                   <p className="text-xs text-muted-foreground">
-                    This invoice has no phone number. Enter one to share it on WhatsApp.
+                    This invoice has no phone number. Enter customer details to share it on
+                    WhatsApp.
                   </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="share-phone" className="text-xs">
-                        Phone
+                        Phone <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="share-phone"
                         inputMode="tel"
-                        placeholder="Customer phone"
+                        placeholder="10-digit mobile number"
                         value={sharePhone}
+                        aria-invalid={!!sharePhoneError}
                         onChange={(e) => {
                           setSharePhone(e.target.value);
                           shareAutoFilledRef.current = null;
                           setShareAutoFilledName(null);
                         }}
                       />
+                      {sharePhoneError && (
+                        <p className="text-xs text-destructive">{sharePhoneError}</p>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="share-name" className="text-xs">
-                        Name (optional)
+                        Customer name <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="share-name"
                         placeholder="Customer name"
                         value={shareName}
+                        aria-invalid={!!shareNameError}
                         onChange={(e) => {
                           setShareName(e.target.value);
                           shareAutoFilledRef.current = null;
                         }}
                       />
+                      {shareNameError && (
+                        <p className="text-xs text-destructive">{shareNameError}</p>
+                      )}
                     </div>
                   </div>
                   {shareAutoFilledName && (
@@ -495,11 +523,48 @@ function Invoices() {
                 </Button>
                 <Button
                   variant="outline"
-                  disabled={!!receipt && !receipt.customer_phone_snapshot && !sharePhone.trim()}
-                  onClick={() => {
+                  disabled={
+                    savingCustomer ||
+                    (!!receipt &&
+                      !receipt.customer_phone_snapshot &&
+                      (!sharePhone.trim() || !!sharePhoneError || !shareName.trim()))
+                  }
+                  onClick={async () => {
                     if (!receipt) return;
-                    // Use the snapshot phone when present; fall back to the user-entered phone.
-                    const phone = receipt.customer_phone_snapshot?.trim() || sharePhone.trim();
+
+                    let phone = receipt.customer_phone_snapshot?.trim();
+
+                    if (!phone) {
+                      const trimmedPhone = sharePhone.trim();
+                      const phoneErr = getPhoneValidationError(trimmedPhone, true);
+                      if (phoneErr) {
+                        toast.error(phoneErr);
+                        return;
+                      }
+                      const trimmedName = shareName.trim();
+                      if (!trimmedName) {
+                        toast.error("Customer name is required");
+                        return;
+                      }
+
+                      setSavingCustomer(true);
+                      try {
+                        const existing = await customerByPhone(trimmedPhone);
+                        if (!existing) {
+                          await saveCustomer(null, { name: trimmedName, phone: trimmedPhone });
+                          await qc.invalidateQueries({ queryKey: ["customers"] });
+                          shareAutoFilledRef.current = trimmedName;
+                          setShareAutoFilledName(trimmedName);
+                        }
+                      } catch (e) {
+                        setSavingCustomer(false);
+                        toast.error(e instanceof Error ? e.message : "Failed to save customer");
+                        return;
+                      }
+                      setSavingCustomer(false);
+                      phone = trimmedPhone;
+                    }
+
                     const token = receipt.public_token;
                     if (!token) {
                       toast.error("Could not generate secure invoice link. Please try again.");
@@ -515,15 +580,18 @@ function Invoices() {
                     });
                     const link = whatsappLink(phone, text);
                     if (!link) {
-                      toast.error(
-                        "Please enter the customer's WhatsApp number before sharing the bill.",
-                      );
+                      toast.error("Please enter a valid WhatsApp number before sharing the bill.");
                       return;
                     }
                     window.open(link, "_blank", "noopener,noreferrer");
                   }}
                 >
-                  <Share2 className="mr-2 size-4" /> WhatsApp Bill
+                  {savingCustomer ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <Share2 className="mr-2 size-4" />
+                  )}
+                  WhatsApp Bill
                 </Button>
                 <Button
                   onClick={() => setReturnMode(true)}
