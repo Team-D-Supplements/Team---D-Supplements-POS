@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { listProducts } from "@/lib/data";
+import { deleteProduct, listProducts } from "@/lib/data";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -22,10 +22,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ProductFormDialog, type Product } from "@/components/products/product-form-dialog";
 import { ImportDialog } from "@/components/products/import-dialog";
 import { money } from "@/lib/format";
-import { Plus, Upload, Search, Pencil } from "lucide-react";
+import { toast } from "sonner";
+import { Plus, Upload, Search, Pencil, Trash2, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/products")({
   head: () => ({
@@ -48,13 +58,33 @@ export const Route = createFileRoute("/_authenticated/products")({
 });
 
 function Products() {
+  const qc = useQueryClient();
   const { data: settings } = useShopSettings();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("active");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState<Product | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return deleteProduct(id);
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      if (result.action === "deactivated") {
+        toast.info(result.message);
+      } else {
+        toast.success(result.message);
+      }
+      setDeleting(null);
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || "Could not delete product");
+    },
+  });
 
   const { data: products } = useQuery({
     queryKey: ["products"],
@@ -184,17 +214,28 @@ function Products() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Edit"
-                      onClick={() => {
-                        setEditing(p);
-                        setFormOpen(true);
-                      }}
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Edit product"
+                        onClick={() => {
+                          setEditing(p);
+                          setFormOpen(true);
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        title="Delete product"
+                        onClick={() => setDeleting(p)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -215,8 +256,36 @@ function Products() {
         onOpenChange={setFormOpen}
         product={editing}
         defaultTax={Number(settings?.default_gst_rate ?? 18)}
+        onDelete={(p) => setDeleting(p)}
       />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
+
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete product?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-foreground">{deleting?.name}</span>? This action
+              cannot be undone. If this product has existing sales, purchases, or stock movements,
+              it will be safely deactivated instead to protect historical records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (deleting) deleteMutation.mutate(deleting.id);
+              }}
+            >
+              {deleteMutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Delete product
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

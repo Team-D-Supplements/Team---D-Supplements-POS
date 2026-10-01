@@ -236,6 +236,46 @@ export const saveProduct = (id: string | null, p: ProductInput) =>
     return nid;
   });
 
+export const deleteProduct = (id: string) =>
+  guard(async () => {
+    const db = getDb();
+    const p = (await all(db, "SELECT id, name FROM products WHERE id = ?", [id]))[0];
+    if (!p) throw new Error("Product not found");
+
+    // Check if referenced by existing transaction records
+    const [invoices, purchases, returns, movements] = await Promise.all([
+      all(db, "SELECT 1 FROM invoice_items WHERE product_id = ? LIMIT 1", [id]),
+      all(db, "SELECT 1 FROM purchase_items WHERE product_id = ? LIMIT 1", [id]),
+      all(db, "SELECT 1 FROM sales_return_items WHERE product_id = ? LIMIT 1", [id]),
+      all(db, "SELECT 1 FROM stock_movements WHERE product_id = ? LIMIT 1", [id]),
+    ]);
+
+    const isReferenced =
+      invoices.length > 0 || purchases.length > 0 || returns.length > 0 || movements.length > 0;
+
+    if (isReferenced) {
+      // Safely deactivate instead of deleting to preserve historical records
+      await db.execute({
+        sql: "UPDATE products SET is_active = 0 WHERE id = ?",
+        args: [id],
+      });
+      return {
+        action: "deactivated" as const,
+        message: `"${p["name"]}" has existing transaction records and was deactivated to preserve historical data.`,
+      };
+    }
+
+    // Completely safe to delete
+    await db.execute({
+      sql: "DELETE FROM products WHERE id = ?",
+      args: [id],
+    });
+    return {
+      action: "deleted" as const,
+      message: `"${p["name"]}" was permanently deleted.`,
+    };
+  });
+
 // ---------------------------------------------------------------- customers / suppliers
 export const listCustomers = () =>
   all(getDb(), "SELECT * FROM customers ORDER BY name COLLATE NOCASE");

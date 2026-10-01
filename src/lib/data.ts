@@ -41,6 +41,11 @@ export async function productByBarcode(barcode: string, activeOnly: boolean): Pr
 export async function saveProduct(id: string | null, product: any): Promise<string> {
   return t.tSaveProduct({ data: { id, product } });
 }
+export async function deleteProduct(
+  id: string,
+): Promise<{ action: "deleted" | "deactivated"; message: string }> {
+  return t.tDeleteProduct({ data: { id } });
+}
 
 // ---------- customers / suppliers
 export async function listCustomers(): Promise<any[]> {

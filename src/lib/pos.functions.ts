@@ -95,6 +95,10 @@ export const tSaveProduct = createServerFn({ method: "POST" })
   .middleware([adminMiddleware])
   .inputValidator((d: unknown) => z.object({ id: id.nullable(), product: productInput }).parse(d))
   .handler(({ data }) => pos.saveProduct(data.id, data.product));
+export const tDeleteProduct = createServerFn({ method: "POST" })
+  .middleware([adminMiddleware])
+  .inputValidator((d: unknown) => z.object({ id }).parse(d))
+  .handler(({ data }) => pos.deleteProduct(data.id));
 
 // ---------- customers / suppliers
 export const tListCustomers = createServerFn({ method: "GET" })

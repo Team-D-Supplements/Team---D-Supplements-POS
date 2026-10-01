@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 
 export type Product = ProductRow;
 
@@ -34,11 +35,13 @@ export function ProductFormDialog({
   onOpenChange,
   product,
   defaultTax,
+  onDelete,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   product?: Product | null;
   defaultTax?: number;
+  onDelete?: (product: Product) => void;
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ ...empty });
@@ -123,13 +126,29 @@ export function ProductFormDialog({
             <Label htmlFor="active">Active (available for billing)</Label>
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>
-            Save product
-          </Button>
+        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+          {product && onDelete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                onOpenChange(false);
+                onDelete(product);
+              }}
+            >
+              <Trash2 className="mr-2 size-4" /> Delete product
+            </Button>
+          ) : (
+            <div />
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => save.mutate()} disabled={save.isPending}>
+              Save product
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
