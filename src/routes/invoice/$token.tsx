@@ -61,7 +61,7 @@ function PublicInvoiceNotFound() {
 }
 
 function PublicInvoicePage() {
-  const { invoice, settings } = Route.useLoaderData();
+  const { invoice, settings } = Route.useLoaderData() as PublicInvoiceData;
 
   const handleDownload = () => {
     try {

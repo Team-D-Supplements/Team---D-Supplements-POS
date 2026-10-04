@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/rules-of-hooks */
 // Server-only authentication + authorization for the Turso backend.
 import { useSession, setResponseStatus } from "@tanstack/react-start/server";
 import { getDb } from "./db.server";
